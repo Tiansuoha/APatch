@@ -116,14 +116,7 @@ jobs:
 
       - name: 发布到Telegram频道
         # 执行条件：非PR、main分支、非标签推送、用户选择发布到Telegram、存在BOT_TOKEN
-        if: ${{ 
-          github.event_name != 'pull_request' && 
-          github.ref == 'refs/heads/main' && 
-          github.ref_type != 'tag' && 
-          github.event.inputs.PUBLISH_TO_TELEGRAM == 'true' && 
-          secrets.BOT_TOKEN != '' && 
-          env.SIGNING_KEY != '' 
-        }}
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.ref_type != 'tag' && github.event.inputs.PUBLISH_TO_TELEGRAM == '发布' && secrets.BOT_TOKEN != '' && env.SIGNING_KEY != '' }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: |
@@ -146,4 +139,4 @@ jobs:
           artifacts: ${{steps.sign_app.outputs.signedReleaseFile}}
           generateReleaseNotes: true
           makeLatest: true
-          replacesArtifacts: true
+          replacesArtifacts: true    
