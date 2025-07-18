@@ -20,6 +20,15 @@ on:
       - 'gradle/libs.versions.toml'
   workflow_call:
   workflow_dispatch:
+    inputs:
+      PUBLISH_TO_TELEGRAM:
+        description: '是否发布到Telegram频道'
+        required: true
+        default: '不发布'
+        type: choice
+        options:
+          - '发布'
+          - '不发布'
 
 jobs:
   build-manager:
@@ -27,52 +36,52 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Generate version
+      - name: 生成版本号
         id: parse_version
         run: |
           COMMIT_NUM=$(git rev-list --count HEAD)
           VERSION=$(echo "$COMMIT_NUM + 200 + 10000" | bc)
-          echo "Generated Version: $VERSION"
+          echo "生成的版本号: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Setup Java
+      - name: 设置 Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      - name: Setup Gradle
+      - name: 设置 Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup ninja
+      - name: 设置 ninja
         uses: seanmiddleditch/gha-setup-ninja@v6
         with:
           version: 1.12.1
 
-      - name: Setup Android SDK
+      - name: 设置 Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: ''
 
-      - name: Install toolchain
+      - name: 安装工具链
         run: |
           rustup default stable
           rustup update stable
           cargo install cargo-ndk
           rustup target install aarch64-linux-android
 
-      - name: Cache Rust
+      - name: 缓存 Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: apd
           cache-targets: false
 
-      - name: Build with Gradle
+      - name: 使用 Gradle 构建
         run: |
           echo 'org.gradle.parallel=true' >> gradle.properties
           echo 'org.gradle.vfs.watch=true' >> gradle.properties
@@ -82,7 +91,7 @@ jobs:
           ./gradlew clean assembleRelease
           echo "BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)" >> $GITHUB_ENV
 
-      - name: Sign Release
+      - name: 签名发布版
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         if: ${{ env.SIGNING_KEY != '' }}
@@ -96,7 +105,7 @@ jobs:
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Upload build artifact
+      - name: 上传构建产物
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         if: ${{ env.SIGNING_KEY != '' }}
@@ -105,24 +114,27 @@ jobs:
           name: APatch
           path: ${{steps.sign_app.outputs.signedReleaseFile}}
 
-      - name: Post to channel
-        if: ${{github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.ref_type != 'tag'}}
+      - name: 发布到Telegram频道
+        # 执行条件：非PR、main分支、非标签推送、用户选择发布到Telegram、存在BOT_TOKEN
+        if: ${{ 
+          github.event_name != 'pull_request' && 
+          github.ref == 'refs/heads/main' && 
+          github.ref_type != 'tag' && 
+          github.event.inputs.PUBLISH_TO_TELEGRAM == 'true' && 
+          secrets.BOT_TOKEN != '' && 
+          env.SIGNING_KEY != '' 
+        }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-          COMMIT_URL: ${{ github.event.head_commit.url }}
-          COMMIT_ID: ${{ github.event.head_commit.id }}
         run: |
-          if [ ! -z "${{ secrets.BOT_TOKEN }}" ]; then
-            OUTPUT="app/build/outputs/apk/release"
-            export Release=$(find $OUTPUT -name "*.apk")
-            URL=$(python3 .github/scripts/telegram_url.py -1002058433411)
-            curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
-            URL=$(python3 .github/scripts/telegram_url.py -1001910818234)
-            curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
-          fi
+          OUTPUT="app/build/outputs/apk/release"
+          export Release=$(find $OUTPUT -name "*.apk")
+          URL=$(python3 .github/scripts/telegram_url.py -1002058433411)
+          curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
+          URL=$(python3 .github/scripts/telegram_url.py -1001910818234)
+          curl -v "$URL" -F Release=@${{ steps.sign_app.outputs.signedReleaseFile }}
 
-      - name: Release apk
+      - name: 发布 APK 到GitHub Release
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         if: ${{ env.SIGNING_KEY != '' && github.ref_type == 'tag' }}
